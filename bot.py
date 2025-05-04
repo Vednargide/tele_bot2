@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from PIL import Image, ImageEnhance, ImageFilter
 import pytesseract
-import re
+import re,os
 
 # Configure logging
 logging.basicConfig(
