@@ -15,31 +15,55 @@ logger = logging.getLogger(__name__)
 # Bot token
 TOKEN = os.getenv("TOKEN")
 
-# Improved function to filter the relevant question
-def filter_relevant_text(ocr_text):
-    # Look for the specific pattern of the fill-in-the-blank question
-    pattern = r"Read each of the sentences.+?fill in the blank\(s\).+?She.+?weeks\."
-    match = re.search(pattern, ocr_text, re.DOTALL | re.IGNORECASE)
+# Improved function to extract and format questions
+def extract_questions(ocr_text):
+    # Try to identify different question patterns
     
-    if match:
-        # Extract just the question part
-        question_text = match.group(0)
+    # Pattern 1: Fill in the blanks questions
+    fill_blank_pattern = r"(Read each of the sentences.+?fill in the blank.+?(?:She|He|They|It).+?\.)"
+    fill_blank_match = re.search(fill_blank_pattern, ocr_text, re.DOTALL | re.IGNORECASE)
+    
+    # Pattern 2: Multiple choice questions
+    mcq_pattern = r"((?:Choose|Select|Pick).+?(?:option|answer|alternative).+?(?:A|B|C|D|1|2|3|4).+?(?:A|B|C|D|1|2|3|4).+?\.)"
+    mcq_match = re.search(mcq_pattern, ocr_text, re.DOTALL | re.IGNORECASE)
+    
+    # Pattern 3: General questions with question marks
+    general_pattern = r"([A-Z][^.!?]*\?)"
+    general_matches = re.findall(general_pattern, ocr_text)
+    
+    # Collect all found questions
+    questions = []
+    
+    if fill_blank_match:
+        questions.append(fill_blank_match.group(1).strip())
+    
+    if mcq_match:
+        questions.append(mcq_match.group(1).strip())
+    
+    if general_matches:
+        for match in general_matches[:3]:  # Limit to first 3 questions to avoid noise
+            questions.append(match.strip())
+    
+    # If no structured questions found, return the most relevant text
+    if not questions:
+        # Try to extract any text that looks like instructions or questions
+        instruction_pattern = r"([A-Z][^.!?]{10,}[.!?])"
+        instruction_matches = re.findall(instruction_pattern, ocr_text)
         
-        # Further refine to get just the sentence with blanks
-        sentence_pattern = r"She.+?weeks\."
-        sentence_match = re.search(sentence_pattern, question_text, re.DOTALL)
-        
-        if sentence_match:
-            return f"Read each of the sentences and fill in the blank(s) with the appropriate word(s):\n{sentence_match.group(0)}"
+        if instruction_matches:
+            for match in instruction_matches[:3]:
+                questions.append(match.strip())
+        else:
+            # Last resort: return the first few sentences that seem meaningful
+            sentences = re.findall(r"[A-Z][^.!?]{5,}[.!?]", ocr_text)
+            meaningful_sentences = [s for s in sentences if len(s) > 15]
+            
+            if meaningful_sentences:
+                questions = meaningful_sentences[:3]
+            else:
+                return "❌ Could not identify any questions in the image."
     
-    # Fallback: try to find just the sentence if the full pattern isn't found
-    sentence_pattern = r"She.+?\(.+?to study.+?\).+?weeks\."
-    sentence_match = re.search(sentence_pattern, ocr_text, re.DOTALL)
-    
-    if sentence_match:
-        return f"Read each of the sentences and fill in the blank(s) with the appropriate word(s):\n{sentence_match.group(0)}"
-    
-    return "❌ Could not find the relevant question in the image."
+    return "📝 Extracted Question(s):\n\n" + "\n\n".join(questions)
 
 # Enhanced OCR Function with Preprocessing
 def extract_text_from_image(image_path):
@@ -51,42 +75,64 @@ def extract_text_from_image(image_path):
         # Convert to grayscale
         img = img.convert("L")
         
-        # Apply thresholding to reduce watermark impact
+        # Create multiple processed versions with different techniques
+        processed_images = []
+        
+        # Version 1: Standard threshold
         threshold = 150
-        img = img.point(lambda p: p > threshold and 255)
+        img1 = img.point(lambda p: p > threshold and 255)
+        img1 = ImageEnhance.Contrast(img1).enhance(2.5)
+        img1 = img1.filter(ImageFilter.GaussianBlur(radius=0.5))
+        img1 = img1.filter(ImageFilter.SHARPEN)
+        processed_images.append(img1)
         
-        # Enhance contrast
-        img = ImageEnhance.Contrast(img).enhance(2.5)
+        # Version 2: Higher threshold for stronger watermark removal
+        threshold2 = 180
+        img2 = img.point(lambda p: p > threshold2 and 255)
+        img2 = ImageEnhance.Contrast(img2).enhance(2.0)
+        img2 = img2.filter(ImageFilter.GaussianBlur(radius=0.7))
+        img2 = img2.filter(ImageFilter.SHARPEN)
+        processed_images.append(img2)
         
-        # Apply slight blur to reduce noise
-        img = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+        # Version 3: Morphological operations to remove thin watermark lines
+        img3 = img.copy()
+        img3 = img3.filter(ImageFilter.MinFilter(3))  # Erosion-like effect
+        img3 = img3.filter(ImageFilter.MaxFilter(3))  # Dilation-like effect
+        img3 = img3.point(lambda p: p > 160 and 255)
+        img3 = ImageEnhance.Contrast(img3).enhance(2.2)
+        processed_images.append(img3)
         
-        # Sharpen the image to make text clearer
-        img = img.filter(ImageFilter.SHARPEN)
-        
-        # Save preprocessed image for debugging (optional)
-        img.save("preprocessed_image.jpg")
+        # Save preprocessed images for debugging (optional)
+        for i, processed_img in enumerate(processed_images):
+            processed_img.save(f"preprocessed_image{i+1}.jpg")
         
         # Configure pytesseract for better text recognition
         custom_config = r'--oem 3 --psm 6 -l eng'
         
-        # Perform OCR
-        ocr_text = pytesseract.image_to_string(img, config=custom_config)
+        # Perform OCR on all preprocessed images
+        ocr_results = []
+        for i, processed_img in enumerate(processed_images):
+            ocr_text = pytesseract.image_to_string(processed_img, config=custom_config)
+            ocr_results.append(ocr_text)
+            logger.info(f"OCR result {i+1} length: {len(ocr_text)}")
+        
+        # Choose the OCR result with the most text
+        ocr_text = max(ocr_results, key=len)
         
         # Log the raw OCR text for debugging
-        logger.info(f"Raw OCR text: {ocr_text}")
+        logger.info(f"Selected raw OCR text: {ocr_text}")
         
-        # Filter for the relevant question
-        relevant_text = filter_relevant_text(ocr_text)
+        # Extract questions from the OCR text
+        extracted_questions = extract_questions(ocr_text)
         
-        return relevant_text
+        return extracted_questions
     except Exception as e:
         logger.error(f"Error in OCR processing: {str(e)}")
         return "❌ Error processing the image. Please try again."
 
 # Start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hi! Send me an image, and I'll extract the relevant question from it.")
+    await update.message.reply_text("Hi! Send me an image containing questions, and I'll extract them for you.")
 
 # Image Analysis Handler
 async def analyze_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,9 +149,9 @@ async def analyze_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         extracted_text = extract_text_from_image(image_path)
 
         # Send the extracted text back to the user
-        await update.message.reply_text(f"📝 Extracted Question:\n\n{extracted_text}")
+        await update.message.reply_text(extracted_text)
     else:
-        await update.message.reply_text("Please send an image.")
+        await update.message.reply_text("Please send an image containing questions.")
 
 # Main Function
 def main():
