@@ -1,8 +1,10 @@
 import logging
+import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import pytesseract
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -11,43 +13,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot token
-TOKEN = "5887342504:AAFYB4XchWo5EkT_kQsmfB6z4eb9MTgEQns"
+# Telegram Bot Token (from environment variable for safety)
+TOKEN = os.getenv("TOKEN")
 
-# Resize Image for Faster Processing
-def preprocess_image(image_path, max_width=800, max_height=800):
+# Preprocess the image to improve OCR accuracy
+def preprocess_image(image_path):
     """
-    Resize the image to reduce processing time.
+    Preprocess the image to improve OCR accuracy.
+    - Enhance contrast
+    - Apply filters to reduce noise
     """
     try:
-        with Image.open(image_path) as img:
-            img.thumbnail((max_width, max_height))
-            resized_path = "resized_image.jpg"
-            img.save(resized_path)
-        return resized_path
+        img = Image.open(image_path)
+        img = img.convert("L")  # Convert to grayscale
+        img = ImageEnhance.Contrast(img).enhance(2)  # Enhance contrast
+        img = img.filter(ImageFilter.MedianFilter())  # Reduce noise
+        return img
     except Exception as e:
-        logger.error(f"Error resizing image: {e}")
-        return image_path  # Fallback to original image
+        logger.error(f"Error in image preprocessing: {str(e)}")
+        return None
 
-# Extract Text Using Tesseract
-def extract_text_from_image(image_path):
+# OCR Function with Text Filtering
+def extract_question_from_image(image_path):
     """
-    Extract text from the given image using Tesseract OCR.
+    Extract relevant question text from the image using OCR and regex filtering.
     """
     try:
         # Preprocess the image
-        processed_image = preprocess_image(image_path)
+        processed_img = preprocess_image(image_path)
+        if not processed_img:
+            return "❌ Failed to preprocess the image."
 
-        # Extract text
-        extracted_text = pytesseract.image_to_string(Image.open(processed_image))
-        return extracted_text if extracted_text.strip() else "❌ No text detected in the image."
+        # Extract text using Tesseract OCR
+        raw_text = pytesseract.image_to_string(processed_img)
+        
+        # Use regex to find relevant questions
+        question_pattern = r"(?i)(read.*?appropriate.*?word.*?:|she.*?\.)"
+        matches = re.findall(question_pattern, raw_text, re.DOTALL)
+
+        # Return the first match or indicate no question was found
+        if matches:
+            return "\n".join(matches)
+        else:
+            return "❌ No question detected in the image."
     except Exception as e:
-        logger.error(f"Error in OCR processing: {e}")
+        logger.error(f"Error in OCR processing: {str(e)}")
         return "❌ Error processing the image. Please try again."
 
 # Start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hi! Send me an image, and I'll extract text from it for you.")
+    await update.message.reply_text("Hi! Send me an image, and I'll extract relevant text (questions) from it for you.")
 
 # Image Analysis Handler
 async def analyze_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,11 +75,11 @@ async def analyze_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_path = "input_image.jpg"
         await file.download_to_drive(image_path)
 
-        # Extract text from the image
-        extracted_text = extract_text_from_image(image_path)
+        # Extract the relevant question from the image
+        extracted_question = extract_question_from_image(image_path)
 
-        # Send the extracted text back to the user
-        await update.message.reply_text(f"📝 Extracted Text:\n\n{extracted_text}")
+        # Send the extracted question back to the user
+        await update.message.reply_text(f"📝 Extracted Question:\n\n{extracted_question}")
     else:
         await update.message.reply_text("Please send an image.")
 
