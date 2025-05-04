@@ -1,10 +1,8 @@
 import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import easyocr
-import cv2
 from PIL import Image
-import numpy as np
+import pytesseract
 
 # Configure logging
 logging.basicConfig(
@@ -13,34 +11,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize OCR reader
-reader = easyocr.Reader(['en'])  # Load EasyOCR with English language
-
 # Bot token
-TOKEN = "5887342504:AAFYB4XchWo5EkT_kQsmfB6z4eb9MTgEQns"  # Replace with your Telegram bot token
+TOKEN = "5887342504:AAFYB4XchWo5EkT_kQsmfB6z4eb9MTgEQns"
 
-# OCR Function with Preprocessing
-def preprocess_and_extract_text(image_path):
+# Resize Image for Faster Processing
+def preprocess_image(image_path, max_width=800, max_height=800):
     """
-    Preprocess the image and extract text using EasyOCR.
+    Resize the image to reduce processing time.
     """
     try:
-        # Load the image
-        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-
-        # Preprocess: Resize, Denoise, and Threshold
-        image = cv2.resize(image, (800, 800), interpolation=cv2.INTER_AREA)
-        image = cv2.fastNlMeansDenoising(image, h=30)
-        _, processed_image = cv2.threshold(image, 150, 255, cv2.THRESH_BINARY)
-
-        # Save processed image for debugging (optional)
-        cv2.imwrite("processed_image.jpg", processed_image)
-
-        # Perform OCR
-        results = reader.readtext(processed_image, detail=0)
-        return "\n".join(results) if results else "❌ No text detected in the image."
+        with Image.open(image_path) as img:
+            img.thumbnail((max_width, max_height))
+            resized_path = "resized_image.jpg"
+            img.save(resized_path)
+        return resized_path
     except Exception as e:
-        logger.error(f"Error in OCR processing: {str(e)}")
+        logger.error(f"Error resizing image: {e}")
+        return image_path  # Fallback to original image
+
+# Extract Text Using Tesseract
+def extract_text_from_image(image_path):
+    """
+    Extract text from the given image using Tesseract OCR.
+    """
+    try:
+        # Preprocess the image
+        processed_image = preprocess_image(image_path)
+
+        # Extract text
+        extracted_text = pytesseract.image_to_string(Image.open(processed_image))
+        return extracted_text if extracted_text.strip() else "❌ No text detected in the image."
+    except Exception as e:
+        logger.error(f"Error in OCR processing: {e}")
         return "❌ Error processing the image. Please try again."
 
 # Start Command
@@ -53,13 +55,13 @@ async def analyze_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Get the highest quality photo
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
-        
+
         # Save the photo locally
         image_path = "input_image.jpg"
         await file.download_to_drive(image_path)
 
-        # Preprocess and extract text from the image
-        extracted_text = preprocess_and_extract_text(image_path)
+        # Extract text from the image
+        extracted_text = extract_text_from_image(image_path)
 
         # Send the extracted text back to the user
         await update.message.reply_text(f"📝 Extracted Text:\n\n{extracted_text}")
