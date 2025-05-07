@@ -1,22 +1,21 @@
-FROM python:3.9-slim
+# Use an official Python runtime as a parent image
+FROM python:3.10-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    tesseract-ocr \
-    libtesseract-dev \
-    && apt-get clean
+    pandoc \
+    tesseract-ocr && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Set the working directory
 WORKDIR /app
 
-# Copy Python dependencies file
-COPY requirements.txt /app/
-
-# Install Python dependencies
+# Copy requirements and install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all project files
-COPY . /app/
+# Copy the application code
+COPY . .
 
-# Run the bot
+# Command to run the application
 CMD ["python", "bot.py"]
