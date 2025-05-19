@@ -1,20 +1,20 @@
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import os
 from aspose.pdf import Document
 
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Hi! Send me a PDF, and I'll convert it to DOCX while keeping the formatting.")
+async def start(update: Update, context: CallbackContext):
+    await update.message.reply_text("Hi! Send me a PDF, and I'll convert it to DOCX while keeping the formatting.")
 
-def handle_document(update: Update, context: CallbackContext):
+async def handle_document(update: Update, context: CallbackContext):
     file = update.message.document
     if file.mime_type == 'application/pdf':
-        update.message.reply_text("Received your PDF. Converting to DOCX while preserving formatting...")
+        await update.message.reply_text("Received your PDF. Converting to DOCX while preserving formatting...")
 
         # Download the file
         file_path = file.file_id + ".pdf"
-        new_file = context.bot.get_file(file.file_id)
-        new_file.download(file_path)
+        new_file = await context.bot.get_file(file.file_id)
+        await new_file.download_to_drive(file_path)
 
         try:
             # Convert PDF to DOCX using Aspose
@@ -24,10 +24,10 @@ def handle_document(update: Update, context: CallbackContext):
 
             # Send the DOCX back to the user
             with open(docx_path, 'rb') as docx_file:
-                update.message.reply_document(docx_file, filename="converted.docx")
+                await update.message.reply_document(docx_file, filename="converted.docx")
             
         except Exception as e:
-            update.message.reply_text(f"Failed to convert PDF: {e}")
+            await update.message.reply_text(f"Failed to convert PDF: {e}")
         
         # Cleanup
         finally:
@@ -36,18 +36,16 @@ def handle_document(update: Update, context: CallbackContext):
             if os.path.exists(docx_path):
                 os.remove(docx_path)
     else:
-        update.message.reply_text("Please send a valid PDF file.")
+        await update.message.reply_text("Please send a valid PDF file.")
 
 def main():
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")  # Get token from environment variable
-    updater = Updater(telegram_bot_token, use_context=True)
-    dp = updater.dispatcher
+    app = Application.builder().token(telegram_bot_token).build()
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(Filters.document, handle_document))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    updater.start_polling()
-    updater.idle()
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
