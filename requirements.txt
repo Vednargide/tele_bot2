@@ -4,3 +4,4 @@ pillow==8.4.0
 python-telegram-bot==20.3
 numpy==1.21.4
 pytesseract==0.3.10
+pdf2docx
