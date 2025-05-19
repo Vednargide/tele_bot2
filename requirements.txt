@@ -1,3 +1,2 @@
-python-telegram-bot==20.3
-pymupdf
-python-docx
+python-telegram-bot==20.0
+aspose-pdf==23.3.0
