@@ -3,14 +3,12 @@ FROM python:3.10-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    pandoc \
-    tesseract-ocr && \
-    rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /app
 
-# Copy requirements and install dependencies
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -18,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Command to run the application
-CMD ["python", "bot.py"]
+CMD ["python", "app.py"]
