@@ -3,12 +3,13 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from pdf2docx import Converter
+from docx import Document
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get Telegram bot token from environment variables
+# Get bot token from environment variables
 TOKEN = os.getenv("TOKEN")
 
 # Function to convert PDF to DOCX
@@ -22,9 +23,22 @@ def convert_pdf_to_docx(input_path, output_path):
         logger.error(f"Error in PDF to DOCX conversion: {e}")
         return False
 
+# Function to standardize fonts in a DOCX file
+def standardize_fonts(docx_path, font_name="Arial", font_size=12):
+    try:
+        doc = Document(docx_path)
+        for paragraph in doc.paragraphs:
+            for run in paragraph.runs:
+                run.font.name = font_name
+                run.font.size = font_size
+        doc.save(docx_path)
+        logger.info("Fonts standardized.")
+    except Exception as e:
+        logger.error(f"Error standardizing fonts: {e}")
+
 # Telegram command: Start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hi! Send me a PDF file, and I'll convert it to DOCX for you.")
+    await update.message.reply_text("Hi! Send me a PDF file, and I'll convert it to DOCX with standardized fonts for you.")
 
 # Telegram handler: File upload
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -47,6 +61,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conversion_success = convert_pdf_to_docx(input_path, output_path)
 
         if conversion_success:
+            # Standardize fonts
+            standardize_fonts(output_path)
             await update.message.reply_document(document=open(output_path, "rb"))
             os.remove(input_path)
             os.remove(output_path)
