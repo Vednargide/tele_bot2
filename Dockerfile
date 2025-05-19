@@ -1,19 +1,14 @@
-# Use an official Python runtime as a parent image
 FROM python:3.10-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    && rm -rf /var/lib/apt/lists/*
+# Install LibreOffice
+RUN apt-get update && apt-get install -y libreoffice
 
-# Set the working directory
-WORKDIR /tele_bot2
-
-# Copy requirements and install Python dependencies
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Copy the application code
-COPY . .
+# Copy bot script
+COPY bot.py .
 
-# Command to run the application
+# Run bot
 CMD ["python", "bot.py"]
